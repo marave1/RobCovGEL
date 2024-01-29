@@ -1,15 +1,20 @@
-RobCovGEL
+Covariate adjustment using GEL and robust estimators
 ================
 Mara Delesa-Velina
 2024-01-29
 
+-   [Introduction](#introduction)
+-   [Data example](#data-example)
+-   [Simulation experiment](#simulation-experiment)
+-   [References](#references)
+
 ## Introduction
 
 This is the accompanying R code for my paper “Covariate adjustment for
-robust estimators” (in preprint). In this paper I present a methodology
-to carry out covariate adjustment based on generalised empirical
-likelihood and robust estimators, in particular, the trimmed means and
-smoothed Huber estimator.
+robust estimators” (preprint). In this paper I present a methodology to
+carry out covariate adjustment based on generalised empirical likelihood
+and robust estimators, in particular, the trimmed means and smoothed
+Huber estimator.
 
 The implementation of generalized empirical likelihood method is based
 on R package `gmm` (Chausse, 2010). Smoothed Huber estimator is computed
@@ -71,6 +76,66 @@ covariance matrix sandwich estimate with `vcovHC()`.
 The results are presented below and correspond to manuscript section 4
 Data analysis.
 
+``` r
+fmt <- function(v) {
+  #Function for printing confidence intervals in a nice format
+  #v - vector containing CI lower and upper values 
+  paste0("(", paste(round(v, 3), collapse = ", "), ")")
+}
+###Normal ANOVA
+m0 <- lm(Posttest ~ Group, electric)
+cf <- coeftest(m0)
+ci <- confint(m0)
+rez1 <- data.frame(Method = "ANOVA", 
+                   delta = cf["Grouptreatment", 1] %>%  round(3), 
+                   delta_ci = fmt(ci["Grouptreatment", ]), 
+                   mu = cf["(Intercept)", 1] %>%  round(3), 
+                   mu_ci = fmt(ci["(Intercept)", ]),
+                   b.x = NA, b.x_ci = NA, b.xy = NA, b.xy_ci = NA)
+
+###ANCOVA
+m1 <- lm(Posttest ~ Pretest + Group, electric)
+cf <- coeftest(m1)
+ci <- confint(m1)
+rez2 <- data.frame(Method = "ANCOVA", 
+                   delta = cf["Grouptreatment", 1] %>%  round(3), 
+                   delta_ci = fmt(ci["Grouptreatment", ]), 
+                   mu = cf["(Intercept)", 1] %>%  round(3), 
+                   mu_ci = fmt(ci["(Intercept)", ]),
+                   b.x = cf["Pretest", 1],
+                   b.x_ci = fmt(ci["Pretest", ]),
+                   b.xy = NA, b.xy_ci = NA)
+
+###ANCOVA w. interactions
+m2 <- (lm(Posttest ~ Pretest * Group, electric))
+cf <- coeftest(m2)
+ci <- confint(m2)
+rez3 <- data.frame(Method = "ANCOVA Inter. ", 
+                   delta = cf["Grouptreatment", 1] %>%  round(3), 
+                   delta_ci = fmt(ci["Grouptreatment", ]), 
+                   mu = cf["(Intercept)", 1] %>%  round(3), 
+                   mu_ci = fmt(ci["(Intercept)", ]),
+                   b.x = cf["Pretest", 1] %>%  round(3),
+                   b.x_ci = fmt(ci["Pretest", ]),
+                   b.xy = cf["Pretest:Grouptreatment", 1] %>%  round(3), 
+                   b.xy_ci = fmt(ci["Pretest:Grouptreatment", ]))
+
+###ANCOVA w. interactions w.robust SE
+cf <- coeftest(m2, vcov = vcovHC(m2))
+ci <- confint(cf)
+rez4 <- data.frame(Method = "ANCOVA Inter. Rob.", 
+                   delta = cf["Grouptreatment", 1] %>%  round(3), 
+                   delta_ci = fmt(ci["Grouptreatment", ]), 
+                   mu = cf["(Intercept)", 1] %>%  round(3), 
+                   mu_ci = fmt(ci["(Intercept)", ]),
+                   b.x = cf["Pretest", 1] %>%  round(3),
+                   b.x_ci = fmt(ci["Pretest", ]),
+                   b.xy = cf["Pretest:Grouptreatment", 1] %>%  round(3), 
+                   b.xy_ci = fmt(ci["Pretest:Grouptreatment", ]))
+### All ANOVAs
+rez <- rbind(rez1, rez2, rez3, rez4)
+```
+
 |          |                  |                  |                  |                    |
 |:---------|:-----------------|:-----------------|:-----------------|:-------------------|
 | Method   | ANOVA            | ANCOVA           | ANCOVA Inter.    | ANCOVA Inter. Rob. |
@@ -117,12 +182,14 @@ moment conditions for mean treatment effect in function `g.means`.
 g.means <- function(tet, W) {
   # tet = c(delta, mu, mu.x) 
   # W = (Y, X, Z), where Y-outcome, X-covariate, Z-group indicator
-  y <- W[, 1]; z<- W[, 2]; x <- W[, 3]
+  y <- W[, 1]
+  z <- W[, 2]
+  x <- W[, 3]
   #Moment conditions:
   m1 <- x - tet[3]
-  m2 <- z*(x - tet[3])
-  m3 <- (y - tet[2] - tet[1]*z)
-  m4 <- z*(y - tet[2] - tet[1]*z)
+  m2 <- z * (x - tet[3])
+  m3 <- (y - tet[2] - tet[1] * z)
+  m4 <- z * (y - tet[2] - tet[1] * z)
   f <- cbind(m1, m2, m3, m4)
   return(f)
 }
@@ -144,14 +211,15 @@ coded as 1), respectively.
 ### Define our data vectors
 y <- electric$Posttest
 x <- electric$Pretest
-z <- as.numeric(electric$Group=="treatment")
+z <- as.numeric(electric$Group == "treatment")
 W <- cbind(y, z, x)
 ### Starting values for theta (sample means)
-tet.init <- c(mean(y[z==1]) - mean(y[z==0]), mean(y[z==0]), 
+tet.init <- c(mean(y[z == 1]) - mean(y[z == 0]), mean(y[z == 0]), 
               mean(x))
 ###  Carry out GEL optimization
-gel.1 <- gel(g.means, x=cbind(y,z, x), type="EL", 
-                 tet= tet.init)
+gel.1 <- gel(g.means, x = cbind(y, z, x), 
+             type = "EL", 
+             tet = tet.init)
 ```
 
 Finally, we obtain the confidence intervals for the parameter estimates
@@ -196,23 +264,25 @@ scaling factor.
 ``` r
 ### Sort the dataset
 # Set the trimming level
-a = 0.1
+a <- 0.1
 #Sort the dataset wrt to outcome in each treatment group
-Ws <- W %>% 
+Ws <- W %>%
   as.data.frame() %>% 
   arrange(y) %>% 
-  group_by(z)  %>% 
+  group_by(z)  %>%
   mutate(keep = trim.index(y, a, a)$keep) 
 
 ### Trim the sample
 Wt <- Ws %>% 
-  filter(keep==T)
-yt <- Wt$y; xt <- Wt$x; zt <- Wt$z
+  filter(keep == T)
+yt <- Wt$y
+xt <- Wt$x
+zt <- Wt$z
 
 ### Calculate confidence level for nonscaled chi-square
-conflev.TM <-  tmeans.conf.level(Ws$y[Ws$z==0], Ws$y[Ws$z==1], 
-                                mu.t=0, alpha=a, 
-                                beta=a, conf.level = 0.95)
+conflev.TM <-  tmeans.conf.level(Ws$y[Ws$z == 0], Ws$y[Ws$z == 1], 
+                                mu.t = 0, alpha = a, 
+                                beta = a, conf.level = 0.95)
 ```
 
 Next, we set the starting values of $\theta$ and optimize the GEL
@@ -228,15 +298,17 @@ We do not print the results of the optimization, we report them in Table
 
 ``` r
 ### Theta starting values as sample trimmed means
-tet.init <- c(mean(yt[zt==1], trim = a) - mean(yt[zt==0], trim = a),
-              mean(yt[zt==0], trim = a), 
-              mean(xt, trim = a))
+tet.init <- c(mean(yt[zt == 1], trim = a) - mean(yt[zt == 0], trim = a),
+            mean(yt[zt == 0], trim = a), 
+            mean(xt, trim = a))
 ### Optimize GEL parameters
-gel.2 <- gel(g.means, x=cbind(yt, zt, xt),
-               tet= tet.init)
+gel.2 <- gel(g.means, 
+             x = cbind(yt, zt, xt),
+             tet = tet.init)
 ### Calculate confidence interval
-cf2 <- confint(gel.2, level = conflev.TM,
-                    type = "invLR", fact=4.5)$test
+cf2 <- confint(gel.2, 
+               level = conflev.TM,
+               type = "invLR", fact = 4.5)$test
 #Print results
 #cbind(gel.2$coefficients, cf2)
 ```
@@ -270,24 +342,25 @@ beforehand. We estimate it using the mean absolute deviation estimator
 (MAD).
 
 ``` r
-g.hub <- function(tet, W)
-{
+g.hub <- function(tet, W) {
   # tet = c(delta, mu, mu.x) 
   # W = (Y, X, Z), where Y-outcome, X-covariate, Z-group indicator
-  y<-W[,1];   z<-W[,2];   x<-W[,3]
+  y <- W[, 1]
+  z <- W[, 2]
+  x <- W[, 3]
   #moment conditions. Note that scale estimate s is a global parameter
-  m1 <- y-tet[2]-tet[1]*z
-  m2 <- z*(y-tet[2]-tet[1]*z)
-  m3 <- smpsi((x - tet[3])/s) 
-  m4 <- z*smpsi((x - tet[3])/s)
-  f <- cbind(m1,m2,m3,m4)
+  m1 <- y - tet[2] - tet[1] * z
+  m2 <- z * (y - tet[2] - tet[1] * z)
+  m3 <- smpsi((x - tet[3]) / s) 
+  m4 <- z * smpsi((x - tet[3]) / s)
+  f <- cbind(m1, m2, m3, m4)
   return(f)
 }
 
 ### Theta starting values
-tet.init <- c(mean(y[z==1]) -  mean(y[z==0]),
-              mean(y[z==0]), 
-                   smhuber(x)$mu)
+tet.init <- c(mean(y[z == 1]) -  mean(y[z == 0]),
+              mean(y[z == 0]), 
+              smhuber(x)$mu)
 ### Scale parameter estimate for the covariate
 s <- mad(x)
 ```
@@ -297,10 +370,10 @@ conditions function to the `gel` procedure.
 
 ``` r
 ### Optimize GEL parameters
-gel.3 <- gel(g.hub, x=cbind(y,z, x),
-               tet= tet.init, type = "EL")
+gel.3 <- gel(g.hub, x = cbind(y, z, x),
+               tet = tet.init, type = "EL")
 ### Calculate CI
-cf3 <- confint(gel.3,type = "invLR")$test
+cf3 <- confint(gel.3, type = "invLR")$test
 ###Print results
 #cbind(gel.3$coefficients, cf3)
 ```
@@ -310,6 +383,34 @@ cf3 <- confint(gel.3,type = "invLR")$test
 Finally we print all the results below, reporting the parameter
 estimates and their respective confidence intervals for all GEL methods.
 They correspond to manuscript section 4 Data analysis.
+
+``` r
+#Results of GEL for mean treatment effect
+rez.gel1 <- data.frame(Method = "GEL Means", 
+                       delta = gel.1$coefficients[1] %>% round(3), 
+                       delta_ci = fmt(cf1[1, ]), 
+                       mu= gel.1$coefficients[2] %>% round(3), 
+                       mu_ci = fmt(cf1[2, ]),
+                       mu.x = gel.1$coefficients[3] %>% round(3), 
+                       mu.x_ci = fmt(cf1[3, ]))
+#Results of GEL for trimmed mean of treatment effect
+rez.gel2 <- data.frame(Method = "GEL TM", 
+                      delta = gel.2$coefficients[1] %>% round(3), 
+                      delta_ci = fmt(cf2[1, ]), 
+                      mu= gel.2$coefficients[2] %>% round(3), 
+                      mu_ci = fmt(cf2[2, ]),
+                      mu.x = gel.2$coefficients[3] %>% round(3), 
+                      mu.x_ci = fmt(cf2[3, ]))
+
+#Results for GEL for mean treatment effect adjusted by smoothed Huber estimator
+rez.gel3 <- data.frame(Method = "GEL TM", 
+                      delta = gel.3$coefficients[1] %>% round(3), 
+                      delta_ci = fmt(cf3[1, ]), 
+                      mu = gel.3$coefficients[2] %>% round(3), 
+                      mu_ci = fmt(cf3[2, ]),
+                      mu.x = gel.3$coefficients[3] %>% round(3), 
+                      mu.x_ci = fmt(cf3[3, ]))
+```
 
 |          |                  |                  |                  |
 |:---------|:-----------------|:-----------------|:-----------------|
@@ -340,16 +441,16 @@ for demonstration purpose.
 ``` r
 ### Set sample and repetition size
 set.seed(12345)
-B <- 10
+B <- 200
 n <- 200
 ### Set covariance structure for y and x
 rho <- 0.5
-Sigma <- matrix(rep(0.5, 9), nrow=3)
-diag(Sigma) <-1
+Sigma <- matrix(rep(0.5, 9), nrow = 3)
+diag(Sigma) <- 1
 ### Define treatment and control group indicator z
 # d : proportion of observations in group 1 
 d <- 0.5
-z <- c(rep(0, d*200), rep(1, (1-d)*200))
+z <- c(rep(0, d * 200), rep(1, (1-d) * 200))
 ### Generate data
 data.norm <- lapply(1:B,  function(i) rmvnorm(n, sigma = Sigma))
 ```
@@ -369,16 +470,19 @@ number of crashed calculations is tracked in our simulation experiment
 and available in output as `num.nas`.
 
 ``` r
-confint.poss = possibly(.f = function(object,type,fact, level=0.95) 
-  #object - gel object
-  #type - GEL method type
-  #fact - The span of search for the inversion of the test
-  #level - confidence level
-  confint.gel(object, type=type, fact=fact, parm=2, level=level)$test[1,], otherwise = c(NA, NA))
+#object - gel object
+#type - GEL method type
+#fact - The span of search for the inversion of the test
+#level - confidence level
+#parm = 1 - we need confidence interval for the 1st parameter (Delta)
+confint.poss <- possibly(.f = function(object, type, fact, level=0.95) 
+  confint.gel(object, type = type, fact = fact, 
+              parm = 1, level=level)$test[1,], 
+              otherwise = c(NA, NA))
 
 ### Simulation experiment 
-sim_1cov <- function(n, z, data, alpha=0.1, tet0 =c(0, 0, 0),
-                conf.nominal = 0.95, fact = 4) {
+sim_1cov <- function(n, z, data, alpha = 0.1, tet0 = c(0, 0, 0), 
+conf.nominal = 0.95, fact = 4) {
   ### Input
   # n - sample size
   # z - treatment group indicator (common for all replicates)
@@ -413,42 +517,42 @@ sim_1cov <- function(n, z, data, alpha=0.1, tet0 =c(0, 0, 0),
     i.tm1 <- trim.index(ys[i.z1], alpha, alpha)$keep.ind
     #Corrected conf.level for EL 
     conflev.TM <- tmeans.conf.level(ys[i.z0], ys[i.z1], 
-                                    mu.t=0, alpha=alpha, 
-                                    beta=alpha, conf.level = conf.nominal)
+                                    mu.t = 0, alpha=alpha, 
+                                    beta = alpha, conf.level = conf.nominal)
     #Data  after trimming
     yt <- c(ys[i.z0][i.tm0], ys[i.z1][i.tm1])
     x1t <- c(xs[i.z0][i.tm0], xs[i.z1][i.tm1])
     zt <- c(rep(0, length(i.tm0)), rep(1, length(i.tm1)))
-    tet.init <- c(mean(yt[zt==1]) - mean(yt[zt==0]),
-                  mean(yt[zt==0]), 
+    tet.init <- c(mean(yt[zt == 1]) - mean(yt[zt == 0]),
+                  mean(yt[zt == 0]), 
                   mean(x1t))
     # ANCOVA LM
     rez.lm <- lm(yt ~ zt + x1t) # 
     tet1[i, ] <- coefficients(rez.lm)[1:3]
     ci1[i, ] <- confint(rez.lm)[2, ] #
     #GEL, EL
-    rez.gel <- gel(g.means, x=cbind(yt, zt, x1t),
-                   tet= tet.init)
+    rez.gel <- gel(g.means, x = cbind(yt, zt, x1t),
+                   tet = tet.init)
     tet2[i, ] <- rez.gel$coefficients
     ci2[i, ] <- confint.poss(rez.gel, type = "invLR", 
-                             fact=fact, level = conflev.TM)    
+                             fact = fact, level = conflev.TM)    
     #GEL, CUE
-    rez.cue <- gel(g.means, x=cbind(yt,zt, x1t),
-                   tet= tet.init,
+    rez.cue <- gel(g.means, x = cbind(yt, zt, x1t),
+                   tet = tet.init,
                    type = "CUE")
     tet3[i, ] <- rez.cue$coefficients
     ci3[i, ] <- confint.poss(rez.cue, type = "invLR", 
-                             fact=fact, level = conflev.TM) 
+                             fact = fact, level = conflev.TM) 
     #GEL, ET
-    rez.et <- gel(g.means, x=cbind(yt,zt, x1t),
-                  tet= tet.init,
+    rez.et <- gel(g.means, x = cbind(yt, zt, x1t),
+                  tet = tet.init,
                   type = "ET")
     tet4[i, ] <- rez.et$coefficients
     ci4[i, ] <- confint.poss(rez.et, level = conflev.TM,
-                             type = "invLR", fact=fact)
+                             type = "invLR", fact = fact)
     #GEL, HD
-    rez.hd <- gel(g.means, x=cbind(yt,zt, x1t),
-                  tet= tet.init,
+    rez.hd <- gel(g.means, x = cbind(yt,zt, x1t),
+                  tet = tet.init,
                   type = "HD")
     tet5[i, ] <- rez.hd$coefficients
     ci5[i, ] <- confint.poss(rez.hd, level = conflev.TM,
@@ -462,15 +566,17 @@ sim_1cov <- function(n, z, data, alpha=0.1, tet0 =c(0, 0, 0),
   RMSE <- sapply(list(tet1, tet2, tet3, tet4, tet5), 
                  FUN=function(i) sqrt(rowMeans((t(i) - tet0)^2, na.rm = FALSE)))
   dimnames(Var) <- dimnames(bias) <- dimnames(RMSE) <-
-    list(c("mu1", "delta", "mux"), c("LS", "GEL.EL", "GEL.CUE", "GEL.ET", "GEL.HD"))
+    list(c("delta", "mu1", "mux"), c("LS", "GEL.EL", "GEL.CUE", "GEL.ET", "GEL.HD"))
   ### Calculate the simulated CI performance - coverage and length
   coverage <- array(sapply(list(ci1, ci2, ci3, ci4, ci5), 
-                           FUN=function(i) mean(sign((i[, 1] - tet0[1])*i[, 2] - tet0[1])==-1, na.rm = T)), dim=c(1,5))
+                           FUN=function(i) mean(sign((i[, 1] - tet0[1])*i[, 2] - tet0[1])==-1, 
+                           na.rm = T)), dim=c(1,5))
   ci.length <- array(sapply(list(ci1, ci2, ci3, ci4, ci5), 
-                            FUN=function(i) mean(i[,2] - i[,1], na.rm = T)), dim=c(1,5))
+                            FUN=function(i) mean(i[,2] - i[,1],
+                            na.rm = T)), dim=c(1,5))
   num.nas = array(sapply(list(tet1, tet2, tet3, tet4, tet5), 
                          FUN=function(i) sum(is.na(i[,1]))), dim=c(1,5))
-  dimnames(num.nas) <-    dimnames(coverage) <- dimnames(ci.length) <- 
+  dimnames(num.nas) <- dimnames(coverage) <- dimnames(ci.length) <- 
     list(c("delta"),  c("LS", "GEL.EL", "GEL.CUE",  "GEL.ET", "GEL.HD"))
   
   return(list(bias = bias, Variance = Var, RMSE = RMSE, 
@@ -486,35 +592,35 @@ that in our example none of the CIs failed for non of the methods, as
 **GEL for trimmed means**
 
 ``` r
-simrez1 <- sim_1cov(n, z, data.norm, alpha=0.1, conf.nominal=0.95, fact=4)
+simrez1 <- sim_1cov(n, z, data.norm, alpha = 0.1, conf.nominal = 0.95, fact = 4)
 simrez1
 ```
 
     ## $bias
-    ##                LS       GEL.EL      GEL.CUE       GEL.ET       GEL.HD
-    ## mu1   -0.01825514  0.035888630  0.036837672  0.036312254  0.036089189
-    ## delta  0.03678273 -0.012709035 -0.013261174 -0.012978966 -0.012837065
-    ## mux    0.24040906  0.008796776  0.008800582  0.008706285  0.008728003
+    ##                LS      GEL.EL     GEL.CUE      GEL.ET      GEL.HD
+    ## delta 0.002588005 0.008726018 0.008844041 0.008793116 0.008762487
+    ## mu1   0.008837231 0.003264982 0.003256948 0.003256707 0.003259793
+    ## mux   0.256157794 0.001238320 0.001218255 0.001213738 0.001222608
     ## 
     ## $Variance
     ##                LS      GEL.EL     GEL.CUE      GEL.ET      GEL.HD
-    ## mu1   0.007316432 0.011146770 0.010996105 0.011069672 0.011107768
-    ## delta 0.010998669 0.007657012 0.007705182 0.007675113 0.007664562
-    ## mux   0.004038657 0.004474672 0.004370363 0.004416831 0.004443560
+    ## delta 0.007966114 0.017472693 0.017502054 0.017484234 0.017477659
+    ## mu1   0.017502382 0.008664294 0.008681239 0.008671141 0.008667398
+    ## mux   0.003229040 0.005314090 0.005290636 0.005296562 0.005303804
     ## 
     ## $RMSE
     ##               LS     GEL.EL    GEL.CUE     GEL.ET     GEL.HD
-    ## mu1   0.08317475 0.10639589 0.10608255 0.10621339 0.10629873
-    ## delta 0.10607437 0.08398113 0.08432391 0.08411929 0.08404104
-    ## mux   0.24785340 0.06406706 0.06333070 0.06364706 0.06383872
+    ## delta 0.08906728 0.13214187 0.13226020 0.13218976 0.13216297
+    ## mu1   0.13226098 0.09290658 0.09299699 0.09294295 0.09292302
+    ## mux   0.26235417 0.07272588 0.07256491 0.07260545 0.07265521
     ## 
     ## $coverage
-    ##        LS GEL.EL GEL.CUE GEL.ET GEL.HD
-    ## delta 0.9      1       1      1      1
+    ##         LS GEL.EL GEL.CUE GEL.ET GEL.HD
+    ## delta 0.86   0.94   0.955   0.95   0.94
     ## 
     ## $ci.length
-    ##              LS    GEL.EL   GEL.CUE    GEL.ET   GEL.HD
-    ## delta 0.3820422 0.3822894 0.4035143 0.3832253 0.380492
+    ##              LS    GEL.EL   GEL.CUE    GEL.ET    GEL.HD
+    ## delta 0.3895847 0.5275152 0.5411908 0.5276128 0.5258986
     ## 
     ## $num.nas
     ##       LS GEL.EL GEL.CUE GEL.ET GEL.HD
@@ -526,7 +632,7 @@ Note, that the same experiment can be used to calculate the GEL for mean
 treatment effect, just by setting the trimming constant `alpha` to zero:
 
 ``` r
-simrez2 <- sim_1cov(n, z, data.norm, alpha=0, conf.nominal=0.95, fact=4)
+simrez2 <- sim_1cov(n, z, data.norm, alpha = 0, conf.nominal = 0.95, fact = 4)
 ```
 
 ### GEL for Huber estimators
@@ -536,7 +642,7 @@ data <- data.norm
 conf.nominal=0.95
 fact=4
 
-sim_hub <- function(n, z, data, tet0 =c(0, 0, 0),
+sim_hub <- function(n, z, data, tet0 = c(0, 0, 0),
                 conf.nominal = 0.95, fact = 4)  {
  ### Input
   # n - sample size
@@ -559,20 +665,22 @@ sim_hub <- function(n, z, data, tet0 =c(0, 0, 0),
   for(i in 1: length(data)) {
     XX <- data[[i]] 
     y <- XX[, 1]; x1 <- XX[, 2]
-    tet.init <- c(mean(y[z==1]) - mean(y[z==0]),
-                  mean(y[z==0]), 
+    tet.init <- c(mean(y[z == 1]) - mean(y[z == 0]),
+                  mean(y[z == 0]), 
                   smhuber(x1)$mu)
     #Scale estimator for Smooth Huber
     s <- mad(x1)
     #Define moment conditions
     gh <- function(tet, W)
     {
-      y<-W[,1];   z<-W[,2];   x<-W[,3]
-      m1 <- y-tet[2]-tet[1]*z
-      m2 <- z*(y-tet[2]-tet[1]*z)
-      m3 <- smpsi((x - tet[3])/s) 
-      m4 <- z*smpsi((x - tet[3])/s)
-      f <- cbind(m1,m2,m3,m4)
+      y<-W[, 1]
+      z<-W[, 2]
+      x<-W[, 3]
+      m1 <- y - tet[2] - tet[1] * z
+      m2 <- z * (y - tet[2] - tet[1] * z)
+      m3 <- smpsi((x - tet[3]) / s) 
+      m4 <- z * smpsi((x - tet[3]) / s)
+      f <- cbind(m1, m2, m3, m4)
       return(f)
     }
     ### ANCOVA
@@ -581,46 +689,50 @@ sim_hub <- function(n, z, data, tet0 =c(0, 0, 0),
     tet1[i, ] <- coefficients(rez.lm)[1:3]
     ci1[i, ] <- confint(rez.lm)[2, ] #ci for z
     #GEL, EL
-    rez.gel <- gel(gh, x=cbind(y,z, x1),
-                   tet= tet.init)
+    rez.gel <- gel(gh,
+                   x = cbind(y, z, x1),
+                   tet = tet.init)
     tet2[i, ] <- rez.gel$coefficients
-    ci2[i, ] <- confint.poss(rez.gel, type = "invLR", fact=fact)    
+    ci2[i, ] <- confint.poss(rez.gel, type = "invLR", fact = fact)    
     #GEL, CUE
-    rez.cue <- gel(gh, x=cbind(y,z, x1),
-                   tet= tet.init,
+    rez.cue <- gel(gh, 
+                   x = cbind(y, z, x1),
+                   tet = tet.init,
                    type = "CUE")
     tet3[i, ] <- rez.cue$coefficients
-    ci3[i, ] <- confint.poss(rez.cue, type = "invLR", fact=fact) 
+    ci3[i, ] <- confint.poss(rez.cue, type = "invLR", fact = fact) 
     
-    rez.et <- gel(gh, x=cbind(y,z, x1),
-                  tet= tet.init,
+    rez.et <- gel(gh, 
+                  x = cbind(y, z, x1),
+                  tet = tet.init,
                   type = "ET")
     tet4[i, ] <- rez.et$coefficients
     ci4[i, ] <- confint.poss(rez.et,
-                             type = "invLR", fact=fact)
+                             type = "invLR", fact = fact)
     
-    rez.hd <- gel(gh, x=cbind(y,z, x1),
-                  tet= tet.init,
+    rez.hd <- gel(gh, 
+                  x = cbind(y,z, x1),
+                  tet = tet.init,
                   type = "HD")
     tet5[i, ] <- rez.hd$coefficients
     ci5[i, ] <- confint.poss(rez.hd, 
-                             type = "invLR", fact=fact)
+                             type = "invLR", fact = fact)
   }
   bias <- sapply(list(tet1, tet2, tet3, tet4, tet5), 
-                 FUN=function(i) rowMeans(t(i) - tet0, na.rm = FALSE))
+                 FUN = function(i) rowMeans(t(i) - tet0, na.rm = FALSE))
   Var <- sapply(list(tet1, tet2, tet3, tet4, tet5), 
-                FUN=function(i) diag(var(i, na.rm = FALSE)))
+                FUN = function(i) diag(var(i, na.rm = FALSE)))
   RMSE <- sapply(list(tet1, tet2, tet3, tet4, tet5), 
-                 FUN=function(i) sqrt(rowMeans((t(i) - tet0)^2, na.rm = FALSE)))
+                 FUN = function(i) sqrt(rowMeans((t(i) - tet0)^2, na.rm = FALSE)))
   dimnames(Var) <- dimnames(bias) <- dimnames(RMSE) <-
-    list(c("mu1", "delta", "mux"), c("LS", "GEL.EL", "GEL.CUE", "GEL.ET", "GEL.HD"))
+    list(c("delta", "mu1", "mux"), c("LS", "GEL.EL", "GEL.CUE", "GEL.ET", "GEL.HD"))
   
   coverage <- array(sapply(list(ci1, ci2, ci3, ci4, ci5), 
                            FUN=function(i) mean(sign((i[, 1] - tet0[1])*i[, 2] - tet0[1])==-1, na.rm = T)), dim=c(1,5))
   ci.length <- array(sapply(list(ci1, ci2, ci3, ci4, ci5), 
-                            FUN=function(i) mean(i[,2] - i[,1], na.rm = T)), dim=c(1,5))
+                            FUN=function(i) mean(i[, 2] - i[, 1], na.rm = T)), dim=c(1, 5))
   num.nas = array(sapply(list(tet1, tet2, tet3, tet4, tet5), 
-                         FUN=function(i) sum(is.na(i[,1]))), dim=c(1,5))
+                         FUN=function(i) sum(is.na(i[, 1]))), dim=c(1, 5))
   dimnames(num.nas) <-    dimnames(coverage) <- dimnames(ci.length) <- 
     list(c("delta"),  c("LS", "GEL.EL", "GEL.CUE",  "GEL.ET", "GEL.HD"))
   
@@ -633,12 +745,31 @@ Run the function:
 
 ``` r
 simrez3 <- sim_hub(n, z, data.norm, 
-                conf.nominal=0.95, fact=4)
+                conf.nominal = 0.95, fact = 4)
 ```
 
 ### Compare the results
 
 Let’s compare the estimation of $\Delta$ with the three methods above.
+
+``` r
+RMSE <- rbind(simrez1$RMSE[2, ], simrez2$RMSE[2, ], simrez3$RMSE[2, ]) %>%  as.data.frame()
+RMSE$method <- c("TM", "Means", "Huber")
+
+bias <- rbind(simrez1$bias[2, ], simrez2$bias[2, ], simrez3$bias[2, ])  %>%  as.data.frame()
+bias$method <- c("TM", "Means", "Huber")
+
+length <- rbind(simrez1$ci.length, simrez2$ci.length, simrez3$ci.length)  %>%  as.data.frame()
+length$method <- c("TM", "Means", "Huber")
+```
+
+``` r
+RMSE %>% 
+  pivot_longer(1:5, names_to = "type", values_to = "RMSE") %>% 
+ggplot(aes(x = type, y = RMSE)) +
+  geom_jitter(aes(color = method), height = 0, width = 0.1) +
+  theme_bw()
+```
 
 ![Comparison of RMSE of Delta for various covariate adjustment
 methods](RobCovGEL_files/figure-gfm/unnamed-chunk-23-1.png)
