@@ -551,7 +551,7 @@ conf.nominal = 0.95, fact = 4) {
     ci4[i, ] <- confint.poss(rez.et, level = conflev.TM,
                              type = "invLR", fact = fact)
     #GEL, HD
-    rez.hd <- gel(g.means, x = cbind(yt,zt, x1t),
+    rez.hd <- gel(g.means, x = cbind(yt, zt, x1t),
                   tet = tet.init,
                   type = "HD")
     tet5[i, ] <- rez.hd$coefficients
@@ -638,10 +638,6 @@ simrez2 <- sim_1cov(n, z, data.norm, alpha = 0, conf.nominal = 0.95, fact = 4)
 ### GEL for Huber estimators
 
 ``` r
-data <- data.norm
-conf.nominal=0.95
-fact=4
-
 sim_hub <- function(n, z, data, tet0 = c(0, 0, 0),
                 conf.nominal = 0.95, fact = 4)  {
  ### Input
@@ -673,9 +669,9 @@ sim_hub <- function(n, z, data, tet0 = c(0, 0, 0),
     #Define moment conditions
     gh <- function(tet, W)
     {
-      y<-W[, 1]
-      z<-W[, 2]
-      x<-W[, 3]
+      y <- W[, 1]
+      z <- W[, 2]
+      x <- W[, 3]
       m1 <- y - tet[2] - tet[1] * z
       m2 <- z * (y - tet[2] - tet[1] * z)
       m3 <- smpsi((x - tet[3]) / s) 
@@ -753,10 +749,10 @@ simrez3 <- sim_hub(n, z, data.norm,
 Let’s compare the estimation of $\Delta$ with the three methods above.
 
 ``` r
-RMSE <- rbind(simrez1$RMSE[2, ], simrez2$RMSE[2, ], simrez3$RMSE[2, ]) %>%  as.data.frame()
+RMSE <- rbind(simrez1$RMSE["delta", ], simrez2$RMSE["delta", ], simrez3$RMSE["delta", ]) %>%  as.data.frame()
 RMSE$method <- c("TM", "Means", "Huber")
 
-bias <- rbind(simrez1$bias[2, ], simrez2$bias[2, ], simrez3$bias[2, ])  %>%  as.data.frame()
+bias <- rbind(simrez1$bias["delta", ], simrez2$bias["delta", ], simrez3$bias["delta", ])  %>%  as.data.frame()
 bias$method <- c("TM", "Means", "Huber")
 
 length <- rbind(simrez1$ci.length, simrez2$ci.length, simrez3$ci.length)  %>%  as.data.frame()
